@@ -54,7 +54,6 @@ enum Commands {
   },
 }
 
-//fn pw_create_unconnected_node(
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
   let cli = Cli::parse();
@@ -66,10 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let registry = Rc::new(core.get_registry().expect("No registry?"));
 
   let orig_pw_objects: HashMap<u32, shared::ProxyItem> = HashMap::new();
-  let pw_objects: Rc<RefCell<HashMap<u32, shared::ProxyItem>>> =
-    Rc::new(RefCell::new(orig_pw_objects));
-  // let orig_pw_factories: HashMap<String, u32> = HashMap::new();
-  // let pw_factories: Rc<RefCell<HashMap<String, u32>>> = Rc::new(RefCell::new(orig_pw_factories));
+  let pw_objects = Rc::new(RefCell::new(orig_pw_objects));
+  let pw_state = Rc::new(RefCell::new(shared::PwGraphState::new()));
 
   //let re_inputs: Rc<OnceCell<Vec<Regex>>> = Rc::new(OnceCell::new());
   //let re_inputs_clone = re_inputs.clone();
@@ -113,9 +110,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   // The callback will only get called as long as we keep the returned listener alive.
   let _listener = registry
     .add_listener_local()
-    .global_remove(clone!(@strong pw_objects => move |id| {
+    .global_remove(clone!(@strong pw_objects, @strong pw_state => move |id| {
       println!("Removed PW object: {:?}", id);
       pw_objects.borrow_mut().remove(&id);
+      pw_state.borrow_mut().del(id);
     }))
   .global(clone!(@weak registry, @strong pw_objects, @strong re_inputs => move |global| {
 
@@ -123,7 +121,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       ObjectType::Node => {
         println!("handlin da node {:?}", global);
         handlers::handle_node_added(
-          global, &registry, &pw_objects,
+          global, &registry, &pw_objects, &pw_state,
           );
         // let node: shared::ProxyItem::Node = pw_objects.borrow().get(&global.id).expect("dunno lol");
         if let Some(shared::ProxyItem::Node {proxy, ..}) = pw_objects.borrow().get(&global.id) {
@@ -134,15 +132,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
           println!("PW object is readable");
           if matching::pw_node_matches_regexes(global, re_inputs.get().expect("No inputs?")) {
             println!("PW Node matched! Link it!");
+            // TODO
           }
         }
       }
       ObjectType::Port => {
         println!("new port: {:?}", global);
         handlers::handle_port_added(
-          global, &registry, &pw_objects,
+          global, &registry, &pw_objects, &pw_state,
         );
-        
+      }
+      ObjectType::Link => {
+        handlers::handle_link_added(
+          global, &registry, &pw_objects, &pw_state,
+        );
       }
       ObjectType::Factory => {
         println!("handlin da factory (jk): {:?}", global);
