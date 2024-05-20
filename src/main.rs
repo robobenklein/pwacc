@@ -30,16 +30,13 @@ use regex::Regex;
 #[command(name = "AutoConnectController")]
 #[command(version, about, long_about = None)]
 struct Cli {
-  /// Optional name to operate on
+  /// Change the user-visible node description.
+  #[arg(short, long, value_name = "NODE_NAME")]
   name: Option<String>,
-
-  /// Sets a custom config file
-  #[arg(short, long, value_name = "FILE")]
-  inputs: Option<PathBuf>,
 
   /// Turn debugging information on
   #[arg(short, long, action = clap::ArgAction::Count)]
-  debug: u8,
+  verbose: u8,
 
   #[command(subcommand)]
   command: Option<Commands>,
@@ -242,7 +239,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   helpers::do_pw_roundtrip(&mainloop, &core);
 
   let central_node = actions::create_main_passthrough_node(
-    &core, "pwacc_node_name",
+    &core, "pwacc_node", &cli.name.unwrap_or("PWACC".to_string()),
   );
   // figures out what id PW gave our new node:
   // also called when we get our ports added to it
