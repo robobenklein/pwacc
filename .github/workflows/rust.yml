@@ -8,12 +8,14 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  DEBIAN_FRONTEND: noninteractive
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
+    - run: sudo apt-get -y install librust-pango-dev
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
