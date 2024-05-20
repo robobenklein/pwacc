@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - run: sudo apt-get -y install librust-pango-dev librust-gtk-sys-dev libgtk-4-dev libadwaita-1-dev
+    - run: sudo apt-get -y install librust-pango-dev librust-gtk-sys-dev libgtk-4-dev libadwaita-1-dev libpipewire-0.3-dev
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
