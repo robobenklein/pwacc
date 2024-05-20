@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
 
     steps:
-    - run: sudo apt-get -y install librust-pango-dev librust-gtk-sys-dev libgtk-4-dev libadwaita-1-dev libpipewire-0.3-dev libspa-0.2-dev
+    - run: sudo apt-get -y install librust-pango-dev libgtk-4-dev libadwaita-1-dev libpipewire-0.3-dev libspa-0.2-dev libclang-dev rustc cargo
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --verbose
