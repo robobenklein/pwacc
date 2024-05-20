@@ -29,7 +29,7 @@ pub fn pw_node_matches_regexes(
             }
         } else {
             // TODO fallback to other props
-            println!("node has no application.name! {:?}", props);
+            // println!("node has no application.name! {:?}", props);
         }
 
         return false;

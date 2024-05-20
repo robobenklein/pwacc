@@ -13,7 +13,7 @@ use std::{cell::Cell, rc::Rc};
 use adw::glib::{self, clone};
 use clap::{Parser, Subcommand};
 use libspa::utils::dict::DictRef;
-use libspa_sys::spa_audio_channel;
+use libspa_sys::{spa_audio_channel, spa_direction};
 use once_cell::unsync::OnceCell;
 use pipewire::{
   context::Context,
@@ -77,7 +77,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let re_outputs: OnceCell<Vec<Regex>> = OnceCell::new();
 
   let central_node_id: Rc<OnceCell<u32>> = Rc::new(OnceCell::new());
-  let central_node_ports: Rc<RefCell<HashMap<(libspa::utils::Direction, spa_audio_channel), u32>>> = Rc::new(RefCell::new(HashMap::new()));
+  let central_node_ports: Rc<RefCell<HashMap<(spa_direction, spa_audio_channel), u32>>> = Rc::new(RefCell::new(HashMap::new()));
   let central_node_connect_input_nodes: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
   let central_node_connect_output_nodes: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
 
@@ -134,7 +134,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       }
     }))
   .global(clone!(
-      @weak registry, @strong pw_objects, @strong re_inputs,
+      @weak core, @weak registry, @strong pw_objects, @strong re_inputs,
       @strong central_node_id,
       @strong central_node_ports,
       @strong central_node_connect_input_nodes,
@@ -165,36 +165,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         handlers::handle_port_added(
           global, &registry, &pw_objects, &pw_state,
         );
+        let id = global.id;
 
         if central_node_id.get().is_none() {
             // waiting for the other end to exist...
             return;
         }
 
-        let pw_state = pw_state.borrow();
+        let pw_state_clone = pw_state.borrow();
+        let mut central_node_ports_clone = central_node_ports.borrow_mut();
+
         let shared::PwGraphItem::Port {node_id, direction} =
-            pw_state.get(global.id).expect("port not tracked after handler?")
+            pw_state_clone.get(id).expect("port not tracked after handler?")
         else {
             panic!("not a port after all?")
         };
-        let audio_channel = pw_state.get_port_audio_channel(global.id);
+        let Some(audio_channel) = pw_state_clone.get_port_audio_channel(id)
+        else {
+            println!("port has no audio channel in state!");
+            return
+        };
 
         // println!("should we link port {:?} on node {:?}?", global.id, node_id);
 
         let central_node_id = central_node_id.get().unwrap();
         if central_node_id == node_id {
-            // it is one of our own ports that got created, gotta check the backlog!
-            println!("this is our port! {:?} ch {:?} dir {:?}", global.id, audio_channel, direction);
-            // TODO put it
+          // it is one of our own ports that got created, gotta check the backlog!
+          println!(
+            "       this is our port! {:?}", global);
+          central_node_ports_clone.insert((direction.as_raw(), *audio_channel), id);
+          // backlog loop TODO
 
-            // TODO backlog loop
+          return;
         }
         match direction {
           Output => { // the target's Outputs to our Inputs
             if central_node_connect_input_nodes.borrow().contains(node_id) {
               // it is an app we should link to our input
-              println!("this is a target input port! {:?} on node {:?}?", global.id, node_id);
+              println!("this is a target input port! {:?}", global);
               // TODO
+              let our_port: u32 = *central_node_ports_clone
+                .get(&(direction.reverse().as_raw(), *audio_channel))
+                .expect("we don't have a central port to match?");
+              let _ = actions::connect_ports(
+                &core, &pw_objects, &pw_state, id, our_port
+              );
+            } else {
+              // nothing to do with it
+              return;
             }
           }
           Input => {

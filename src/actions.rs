@@ -7,11 +7,13 @@ use std::{
 };
 use std::collections::HashMap;
 
+use libspa::utils::Direction;
 use pipewire;
 use pipewire::{
     context::Context,
     core::Core,
     node::Node,
+    link::Link,
     properties::properties,
 };
 
@@ -61,4 +63,49 @@ pub fn connect_nodes(
     println!("connect node {:?} to {:?}", node_from, node_to);
 
     return Ok(());
+}
+
+pub fn connect_ports(
+    core: &Rc<Core>,
+    pw_objects: &Rc<RefCell<HashMap<u32, shared::ProxyItem>>>,
+    pw_state: &Rc<RefCell<shared::PwGraphState>>,
+    port_from_id: u32,
+    port_to_id: u32,
+) -> Result<Link, ()> {
+    let pw_state = pw_state.borrow();
+    // let core = core.borrow_mut();
+
+    let shared::PwGraphItem::Port {node_id: node_from_id, direction: port_from_direction} =
+        pw_state.get(port_from_id).expect("from port did not exist!")
+    else {
+        panic!("that was not a port's id!")
+    };
+    assert_eq!(port_from_direction.clone(), Direction::Output);
+
+    let shared::PwGraphItem::Port {node_id: node_to_id, direction: port_to_direction} =
+        pw_state.get(port_to_id).expect("to port did not exist!")
+    else {
+        panic!("that was not a port's id!")
+    };
+    assert_eq!(port_to_direction.clone(), Direction::Input);
+
+    assert_eq!(
+        port_from_direction.reverse(), port_to_direction.clone(),
+        "we cant link these! {:?} and {:?}", port_from_id, port_to_id
+    );
+
+    let link_props = &properties! {
+        "link.output.node" => node_to_id.to_string().as_str(),
+        "link.output.port" => port_to_id.to_string().as_str(),
+        "link.input.node" => node_from_id.to_string().as_str(),
+        "link.input.port" => port_from_id.to_string().as_str(),
+        "object.linger" => "1",
+    };
+    println!("   making a link! with {:?}", link_props);
+    let link_proxy = core.create_object::<Link>(
+        "link-factory", // TODO: fetch dynamically
+        link_props,
+    ).expect("link creation failed!");
+
+    return Ok(link_proxy);
 }
