@@ -6,13 +6,14 @@ mod constants;
 mod helpers;
 
 use std::cell::{RefCell, RefMut};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::{cell::Cell, rc::Rc};
 
 use adw::glib::{self, clone};
 use clap::{Parser, Subcommand};
 use libspa::utils::dict::DictRef;
+use libspa_sys::spa_audio_channel;
 use once_cell::unsync::OnceCell;
 use pipewire::{
   context::Context,
@@ -73,10 +74,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   //let re_inputs: Rc<OnceCell<Vec<Regex>>> = Rc::new(OnceCell::new());
   //let re_inputs_clone = re_inputs.clone();
   let re_inputs: OnceCell<Vec<Regex>> = OnceCell::new();
-  //let re_outputs: Vec<Regex> = vec![];
+  let re_outputs: OnceCell<Vec<Regex>> = OnceCell::new();
 
-  let central_node_connect_input_backlog: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
-  let central_node_connect_output_backlog: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
+  let central_node_id: Rc<OnceCell<u32>> = Rc::new(OnceCell::new());
+  let central_node_ports: Rc<RefCell<HashMap<(libspa::utils::Direction, spa_audio_channel), u32>>> = Rc::new(RefCell::new(HashMap::new()));
+  let central_node_connect_input_nodes: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
+  let central_node_connect_output_nodes: Rc<RefCell<HashSet<u32>>> = Rc::new(RefCell::new(HashSet::new()));
 
   // helpers::do_pw_roundtrip(&mainloop, &core);
 
@@ -116,41 +119,89 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   // The callback will only get called as long as we keep the returned listener alive.
   let _listener = registry
     .add_listener_local()
-    .global_remove(clone!(@strong pw_objects, @strong pw_state => move |id| {
+    .global_remove(clone!(@strong pw_objects, @strong pw_state,
+        @strong central_node_connect_input_nodes,
+        @strong central_node_connect_output_nodes => move |id| {
       println!("Removed PW object: {:?}", id);
       pw_objects.borrow_mut().remove(&id);
       pw_state.borrow_mut().del(id);
+
+      if central_node_connect_input_nodes.borrow_mut().remove(&id) {
+        println!("Removed PWACC input node {:?}", id);
+      }
+      if central_node_connect_output_nodes.borrow_mut().remove(&id) {
+        println!("Removed PWACC output node {:?}", id);
+      }
     }))
   .global(clone!(
       @weak registry, @strong pw_objects, @strong re_inputs,
-      @strong central_node_connect_input_backlog,
-      @strong central_node_connect_output_backlog => move |global| {
+      @strong central_node_id,
+      @strong central_node_ports,
+      @strong central_node_connect_input_nodes,
+      @strong central_node_connect_output_nodes => move |global| {
 
     match &global.type_ {
       ObjectType::Node => {
-        println!("handlin da node {:?}", global);
+        // println!("handlin da node {:?}", global);
         handlers::handle_node_added(
           global, &registry, &pw_objects, &pw_state,
         );
         // let node: shared::ProxyItem::Node = pw_objects.borrow().get(&global.id).expect("dunno lol");
         if let Some(shared::ProxyItem::Node {proxy, ..}) = pw_objects.borrow().get(&global.id) {
-          println!("gotme a node: {:?}", proxy);
+          // println!("gotme a node: {:?}", proxy);
         }
 
-        if matching::pw_node_is_readable(global) {
-          println!("PW object is readable");
-          if matching::pw_node_matches_regexes(global, re_inputs.get().expect("No inputs?")) {
-            println!("PW Node matched! Link it!");
-            central_node_connect_input_backlog.borrow_mut().push(global.id);
-          }
+        if matching::pw_node_matches_regexes(global, re_inputs.get().expect("No inputs?")) {
+          println!("PW Node matched! Link this node: {:?}", global);
+          central_node_connect_input_nodes.borrow_mut().insert(global.id);
         }
-        // TODO writable
+        // if matching::pw_node_matches_regexes(global, re_outputs.get().expect("No outputs?")) {
+        //   println!("PW Node matched! Link it!");
+        //   central_node_connect_output_nodes.borrow_mut().insert(global.id);
+        // }
       }
       ObjectType::Port => {
-        println!("new port: {:?}", global);
+        // println!("new port: {:?}", global);
         handlers::handle_port_added(
           global, &registry, &pw_objects, &pw_state,
         );
+
+        if central_node_id.get().is_none() {
+            // waiting for the other end to exist...
+            return;
+        }
+
+        let pw_state = pw_state.borrow();
+        let shared::PwGraphItem::Port {node_id, direction} =
+            pw_state.get(global.id).expect("port not tracked after handler?")
+        else {
+            panic!("not a port after all?")
+        };
+        let audio_channel = pw_state.get_port_audio_channel(global.id);
+
+        // println!("should we link port {:?} on node {:?}?", global.id, node_id);
+
+        let central_node_id = central_node_id.get().unwrap();
+        if central_node_id == node_id {
+            // it is one of our own ports that got created, gotta check the backlog!
+            println!("this is our port! {:?} ch {:?} dir {:?}", global.id, audio_channel, direction);
+            // TODO put it
+
+            // TODO backlog loop
+        }
+        match direction {
+          Output => { // the target's Outputs to our Inputs
+            if central_node_connect_input_nodes.borrow().contains(node_id) {
+              // it is an app we should link to our input
+              println!("this is a target input port! {:?} on node {:?}?", global.id, node_id);
+              // TODO
+            }
+          }
+          Input => {
+            // TODO
+          }
+        }
+
       }
       ObjectType::Link => {
         handlers::handle_link_added(
@@ -170,45 +221,38 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   }))
   .register();
 
-  // .done(clone!(@strong setup_done @strong mainloop => move |id, seq| {
-  //   if id == pw::core::PW_ID_CORE && seq == pending {
-  //     setup_done.set(true);
-  //     mainloop.quit();
-  //     println!("PWACC initial sync complete");
-  //   }
-  // }))
-
   helpers::do_pw_roundtrip(&mainloop, &core);
-
-  // while (!setup_done.get()) {
-  //   mainloop.run();
-  // }
-
-  println!("PWACC initial sync complete");
-  println!(
-    "Nodes to connect next: inputs({:?}) outputs({:?})",
-    central_node_connect_input_backlog.borrow(), central_node_connect_output_backlog.borrow()
-  );
-
-  // === start adding our own things now & listening for new changes:
 
   let central_node = actions::create_main_passthrough_node(
     &core, "pwacc_node_name",
   );
-  let central_node_id: Rc<OnceCell<u32>> = Rc::new(OnceCell::new());
-
   // figures out what id PW gave our new node:
   // also called when we get our ports added to it
-  let _central_node_listener = central_node.add_listener_local()
+  let central_node_listener = central_node.add_listener_local()
     .info(clone!(@strong central_node_id => move |info| {
         let id = info.id();
-        let props = info.props();
-        println!("got central_node {:?} info props {:?}", id, props);
+        let state = info.state();
+        let props = info.props().expect("central node info update should give me props");
+        println!("got central_node {:?} state {:?} info props {:?}", id, state, props);
         central_node_id.set(id);
     }))
     .register();
 
   println!("main node is {:?}", central_node);
+  println!("PWACC initial sync complete");
+  println!(
+    "Nodes to be connected next: inputs({:?}) outputs({:?})",
+    central_node_connect_input_nodes.borrow(), central_node_connect_output_nodes.borrow()
+  );
+
+  // done with this one now
+  // how do I do this???
+  // central_node_listener.unregister();
+
+  println!("PWACC established and listening for new changes...");
+
+  // === start listening for new changes only:
+
 
   mainloop.run();
 

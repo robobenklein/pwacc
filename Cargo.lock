@@ -93,6 +93,7 @@ dependencies = [
  "libspa-sys",
  "once_cell",
  "pipewire",
+ "pipewire-sys",
  "regex",
  "snafu",
  "state",

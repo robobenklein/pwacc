@@ -9,6 +9,7 @@ use std::{cell::Cell, rc::Rc};
 
 use adw::glib::clone;
 use libspa::utils::dict::DictRef;
+use pipewire_sys;
 use pipewire::{
     context::Context,
     main_loop::MainLoop,
@@ -71,6 +72,8 @@ pub fn handle_port_added(
     pw_objects: &Rc<RefCell<HashMap<u32, shared::ProxyItem>>>,
     pw_state: &Rc<RefCell<shared::PwGraphState>>,
 ) {
+    let id = port.id;
+    let props = port.props.expect("port should have props");
     let proxy: Port = registry.bind(port).expect("proxy for port bind failed");
     let listener = proxy.add_listener_local()
         .info(clone!(@strong pw_objects, @strong pw_state => move |info| {
@@ -80,6 +83,25 @@ pub fn handle_port_added(
     pw_objects.borrow_mut().insert(port.id, shared::ProxyItem::Port {
         proxy: proxy, listener: listener,
     });
+
+    let mut pw_state = pw_state.borrow_mut();
+    // initial props have useful info that we want to have immediately
+    let node_id: u32 = props.get("node.id")
+        .unwrap_or_else(|| panic!("ERROR! port props should have node.id, have: {:?}", props))
+        .parse().expect("node.id should be u32");
+    pw_state.add(id, shared::PwGraphItem::Port {
+        node_id,
+        direction: constants::direction_name_to_spa_direction(
+            props.get("port.direction")
+                .expect("port needs a direction")
+        ),
+    });
+    // if audio.channel present, set it:
+    if let Some(audio_channel) = props.get("audio.channel") {
+        let ch = constants::channel_name_to_spa_audio_channel(audio_channel);
+        pw_state.set_port_audio_channel(id, ch);
+        // println!("initial audio channel {:?} ({:?})", audio_channel, ch);
+    }
 }
 
 fn handle_port_info(
@@ -87,7 +109,7 @@ fn handle_port_info(
     pw_objects: &Rc<RefCell<HashMap<u32, shared::ProxyItem>>>,
     pw_state: &Rc<RefCell<shared::PwGraphState>>,
 ) {
-    let props = info.props().expect("port should have props");
+    let props = info.props().expect("port info should have props");
     let id = info.id();
     let pw_objects = pw_objects.borrow();
     let mut pw_state = pw_state.borrow_mut();

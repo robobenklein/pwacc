@@ -59,6 +59,10 @@ impl PwGraphState {
         self.port_audio_channels.insert(id, ch);
     }
 
+    pub fn get_port_audio_channel(&self, id: u32) -> Option<&spa_audio_channel> {
+        return self.port_audio_channels.get(&id);
+    }
+
     pub fn get(&self, id: u32) -> Option<&PwGraphItem> {
         return self.items.get(&id);
     }
@@ -68,6 +72,9 @@ impl PwGraphState {
 
         if let Some(PwGraphItem::Link {port_from, port_to}) = old {
             self.links.remove(&(port_from, port_to));
+        }
+        if let Some(PwGraphItem::Port {..}) = old {
+            self.port_audio_channels.remove(&id);
         }
 
         return old;

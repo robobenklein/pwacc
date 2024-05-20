@@ -23,12 +23,13 @@ pub fn pw_node_matches_regexes(
     patterns: &Vec<Regex>,
 ) -> bool {
     if let Some(props) = node.props {
-        let application_name = props
-            .get("application.name")
-            .expect("PW Node has no application.name!")
-            .to_string();
-        if string_matches_any_pattern(application_name, patterns) {
-            return true;
+        if let Some(application_name) = props.get("application.name") {
+            if string_matches_any_pattern(application_name.to_string(), patterns) {
+                return true;
+            }
+        } else {
+            // TODO fallback to other props
+            println!("node has no application.name! {:?}", props);
         }
 
         return false;
