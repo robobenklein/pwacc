@@ -58,6 +58,5 @@ pub fn pw_node_is_readable(node: &GlobalObject<&libspa::utils::dict::DictRef>) -
 }
 
 pub fn pw_object_is_node(go: &GlobalObject<&libspa::utils::dict::DictRef>) -> bool {
-    return go.type_ == pipewire::types::ObjectType::Node
-        || go.type_ == pipewire::types::ObjectType::ClientNode;
+    return go.type_ == pipewire::types::ObjectType::Node;
 }

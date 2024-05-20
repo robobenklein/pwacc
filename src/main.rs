@@ -2,6 +2,8 @@ mod actions;
 mod handlers;
 mod matching;
 mod shared;
+mod constants;
+mod helpers;
 
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
@@ -73,9 +75,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
   let re_inputs: OnceCell<Vec<Regex>> = OnceCell::new();
   //let re_outputs: Vec<Regex> = vec![];
 
-  let central_node = actions::create_main_passthrough_node(
-    &core, "pwacc_node_name",
-  );
+  let central_node_connect_input_backlog: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
+  let central_node_connect_output_backlog: Rc<RefCell<Vec<u32>>> = Rc::new(RefCell::new(Vec::new()));
+
+  // helpers::do_pw_roundtrip(&mainloop, &core);
 
   // let node_factory_type = ObjectType::Node.to_str();
   // let node_factory: OnceCell<String> = OnceCell::new();
@@ -105,6 +108,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     None => {}
   }
 
+  // === initial setup connection, getting the current state of the world:
+  // let setup_done = Rc::new(Cell::new(false));
+
   // Register a callback to the `global` event on the registry, which notifies of any new global objects
   // appearing on the remote.
   // The callback will only get called as long as we keep the returned listener alive.
@@ -115,14 +121,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       pw_objects.borrow_mut().remove(&id);
       pw_state.borrow_mut().del(id);
     }))
-  .global(clone!(@weak registry, @strong pw_objects, @strong re_inputs => move |global| {
+  .global(clone!(
+      @weak registry, @strong pw_objects, @strong re_inputs,
+      @strong central_node_connect_input_backlog,
+      @strong central_node_connect_output_backlog => move |global| {
 
     match &global.type_ {
       ObjectType::Node => {
         println!("handlin da node {:?}", global);
         handlers::handle_node_added(
           global, &registry, &pw_objects, &pw_state,
-          );
+        );
         // let node: shared::ProxyItem::Node = pw_objects.borrow().get(&global.id).expect("dunno lol");
         if let Some(shared::ProxyItem::Node {proxy, ..}) = pw_objects.borrow().get(&global.id) {
           println!("gotme a node: {:?}", proxy);
@@ -132,9 +141,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
           println!("PW object is readable");
           if matching::pw_node_matches_regexes(global, re_inputs.get().expect("No inputs?")) {
             println!("PW Node matched! Link it!");
-            // TODO
+            central_node_connect_input_backlog.borrow_mut().push(global.id);
           }
         }
+        // TODO writable
       }
       ObjectType::Port => {
         println!("new port: {:?}", global);
@@ -157,55 +167,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       }
     }
 
-    // let res = handlers::handle_new_object(
-    //     global, &registry, &pw_objects,
-    // )
-    // pw_objects.borrow_mut().insert(global.id, global);
-    //if global.type_ == pipewire::types::ObjectType::Factory {
-    //  println!("factory: {:?}", global);
-    //  if let Some(props) = global.props {
-    //    println!("has props: {:?}", props);
-    //    let factory_type = props.get("factory.type.name").expect("Factory has no type").to_string();
-    //    rc_pw_factories_clone.borrow_mut().insert(factory_type, global.id);
-
-    //      //// Link factory:
-    //      //link_factory_type => {
-    //      //  println!("found {:?}", link_factory_type);
-    //      //  let link_factory_name = props.get("factory.name").expect("Factory has no name");
-    //      //  println!("before setting, link_factory is {:?}", link_factory.get());
-    //      //  link_factory
-    //      //    .set(link_factory_name.to_owned())
-    //      //    .expect("Name was already set?");
-    //      //}
-    //      //node_factory_type => {
-    //      //  println!("found {:?}", node_factory_type);
-    //      //  let node_factory_name = props.get("factory.name").expect("Factory has no name");
-    //      //  node_factory
-    //      //    .set(node_factory_name.to_owned())
-    //      //    .expect("Name was already set?");
-    //      //}
-    //      ////Some(s) => {
-    //      ////  println!("we aint lookin for {:?}", s);
-    //      ////}
-    //      ////None => {}
-    //  }
-    //}
-    // if !matching::pw_object_is_node(&global) {
-    //   //println!("non-node object is {:?}", global.type_);
-    //   return;
-    // }
-    //
-    // // Run checks on the node against our rules
-    // println!("PW object is node: {:?}", global);
-
   }))
   .register();
 
-  println!("main node is {:?}", central_node);
+  // .done(clone!(@strong setup_done @strong mainloop => move |id, seq| {
+  //   if id == pw::core::PW_ID_CORE && seq == pending {
+  //     setup_done.set(true);
+  //     mainloop.quit();
+  //     println!("PWACC initial sync complete");
+  //   }
+  // }))
 
-  // Calling the `destroy_global` method on the registry will destroy the object with the specified id on the remote.
-  // We don't have a specific object to destroy now, so this is commented out.
-  // registry.destroy_global(313).into_result()?;
+  helpers::do_pw_roundtrip(&mainloop, &core);
+
+  // while (!setup_done.get()) {
+  //   mainloop.run();
+  // }
+
+  println!("PWACC initial sync complete");
+  println!(
+    "Nodes to connect next: inputs({:?}) outputs({:?})",
+    central_node_connect_input_backlog.borrow(), central_node_connect_output_backlog.borrow()
+  );
+
+  // === start adding our own things now & listening for new changes:
+
+  let central_node = actions::create_main_passthrough_node(
+    &core, "pwacc_node_name",
+  );
+  let central_node_id: Rc<OnceCell<u32>> = Rc::new(OnceCell::new());
+
+  // figures out what id PW gave our new node:
+  // also called when we get our ports added to it
+  let _central_node_listener = central_node.add_listener_local()
+    .info(clone!(@strong central_node_id => move |info| {
+        let id = info.id();
+        let props = info.props();
+        println!("got central_node {:?} info props {:?}", id, props);
+        central_node_id.set(id);
+    }))
+    .register();
+
+  println!("main node is {:?}", central_node);
 
   mainloop.run();
 

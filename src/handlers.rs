@@ -1,6 +1,7 @@
 
 use crate::matching;
 use crate::shared;
+use crate::constants;
 
 use std::cell::{RefCell, RefMut};
 use std::collections::HashMap;
@@ -87,7 +88,38 @@ fn handle_port_info(
     pw_state: &Rc<RefCell<shared::PwGraphState>>,
 ) {
     let props = info.props().expect("port should have props");
-    let node_id: u32 = props.get("node.id").expect("port to have node.id").parse().expect("node.id should be u32");
+    let id = info.id();
+    let pw_objects = pw_objects.borrow();
+    let mut pw_state = pw_state.borrow_mut();
+
+    // do we know this port?
+    let Some(shared::ProxyItem::Port { proxy, .. }) = pw_objects.get(&id) else {
+        println!("ERROR! port is unknown! {:?}", info);
+        return;
+    };
+
+    // was this info an update? / do we already know about it?
+    if let Some(shared::PwGraphItem::Port {..}) = pw_state.get(id) {
+        // println!("port updated: {:?}", info);
+        // TODO in case we need any of this data
+    } else {
+        let node_id: u32 = props.get("node.id")
+            .unwrap_or_else(|| panic!("ERROR! port info should have node.id: {:?}", info))
+            .parse().expect("node.id should be u32");
+
+        pw_state.add(id, shared::PwGraphItem::Port {
+            node_id,
+            direction: info.direction(),
+        });
+
+    }
+
+    // if audio.channel present, set it:
+    if let Some(audio_channel) = props.get("audio.channel") {
+        let ch = constants::channel_name_to_spa_audio_channel(audio_channel);
+        pw_state.set_port_audio_channel(id, ch);
+        // println!("Parsing audio channel {:?} ({:?})", audio_channel, ch);
+    }
 }
 
 pub fn handle_link_added(

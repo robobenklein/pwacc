@@ -39,6 +39,7 @@ pub fn create_main_passthrough_node(
             "factory.name" => "support.null-audio-sink", // TODO: check availability
             "media.class" => "Audio/Sink",
             "object.linger" => "false",
+            // TODO specifiy channels???
         },
     ).expect("node creation failed");
     return node;
@@ -47,8 +48,17 @@ pub fn create_main_passthrough_node(
 pub fn connect_nodes(
     core: &Rc<Core>,
     pw_objects: &Rc<RefCell<HashMap<u32, shared::ProxyItem>>>,
-    node_from: Node,
-    node_to: Node,
-) {
+    pw_state: &Rc<RefCell<shared::PwGraphState>>,
+    node_from: &u32,
+    node_to: &u32,
+) -> Result<(), ()> {
     // PW needs ports, so gotta map all that out
+    let pw_state = pw_state.borrow();
+
+    let node_from_ports = pw_state.ports_for_node(node_from);
+    let node_to_ports = pw_state.ports_for_node(node_to);
+
+    println!("connect node {:?} to {:?}", node_from, node_to);
+
+    return Ok(());
 }
