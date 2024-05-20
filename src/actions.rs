@@ -95,10 +95,10 @@ pub fn connect_ports(
     );
 
     let link_props = &properties! {
-        "link.output.node" => node_to_id.to_string().as_str(),
-        "link.output.port" => port_to_id.to_string().as_str(),
-        "link.input.node" => node_from_id.to_string().as_str(),
-        "link.input.port" => port_from_id.to_string().as_str(),
+        "link.input.node" => node_to_id.to_string().as_str(),
+        "link.input.port" => port_to_id.to_string().as_str(),
+        "link.output.node" => node_from_id.to_string().as_str(),
+        "link.output.port" => port_from_id.to_string().as_str(),
         "object.linger" => "1",
     };
     println!("   making a link! with {:?}", link_props);
