@@ -38,4 +38,16 @@ mod tests {
             libspa_sys::SPA_AUDIO_CHANNEL_FL
         );
     }
+
+    #[test]
+    fn get_port_directions() {
+        assert_eq!(
+            direction_name_to_spa_direction("in"),
+            libspa::utils::Direction::Input
+        );
+        assert_eq!(
+            direction_name_to_spa_direction("out"),
+            libspa::utils::Direction::Output
+        );
+    }
 }

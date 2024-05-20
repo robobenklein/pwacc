@@ -21,10 +21,15 @@ pub fn patterns_to_regexes(patterns: &Vec<String>) -> Vec<Regex> {
 pub fn pw_node_matches_regexes(
     node: &pipewire::registry::GlobalObject<&libspa::utils::dict::DictRef>,
     patterns: &Vec<Regex>,
+    match_description: bool,
 ) -> bool {
     if let Some(props) = node.props {
         if let Some(application_name) = props.get("application.name") {
             if string_matches_any_pattern(application_name.to_string(), patterns) {
+                return true;
+            }
+        } else if let Some(node_description) = props.get("node.description") {
+            if match_description && string_matches_any_pattern(node_description.to_string(), patterns) {
                 return true;
             }
         } else {

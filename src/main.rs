@@ -12,7 +12,7 @@ use std::{cell::Cell, rc::Rc};
 
 use adw::glib::{self, clone};
 use clap::{Parser, Subcommand};
-use libspa::utils::dict::DictRef;
+use libspa::utils::{dict::DictRef, Direction};
 use libspa_sys::{spa_audio_channel, spa_direction};
 use once_cell::unsync::OnceCell;
 use pipewire::{
@@ -37,6 +37,11 @@ struct Cli {
   /// Turn debugging information on
   #[arg(short, long, action = clap::ArgAction::Count)]
   verbose: u8,
+
+  /// Include node.description when matching against patterns
+  /// (instead of just the application name)
+  #[arg(short, long)]
+  match_description: bool,
 
   #[command(subcommand)]
   command: Option<Commands>,
@@ -90,6 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   // println!("{:?} and {:?}", node_factory_type, link_factory_type);
 
+  // TODO redo to allow both input and output patterns at the same time
   match &cli.command {
     Some(Commands::Inputs { input_patterns }) => {
       if input_patterns.len() > 0 {
@@ -99,11 +105,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
       }
 
       re_inputs.set(matching::patterns_to_regexes(input_patterns));
-      //re_inputs = patterns_to_regexes(input_patterns);
+      re_outputs.set(matching::patterns_to_regexes(&vec![]));
       println!("Matching regexes: {:?}", re_inputs);
     }
     Some(Commands::Outputs { output_patterns }) => {
-      println!("NotImplemented!");
+        if output_patterns.len() > 0 {
+          println!("Output patterns: {:?}", output_patterns);
+        } else {
+          println!("No output patterns given!");
+        }
+
+        re_inputs.set(matching::patterns_to_regexes(&vec![]));
+        re_outputs.set(matching::patterns_to_regexes(output_patterns));
+        println!("Matching regexes: {:?}", re_outputs);
     }
     None => {}
   }
@@ -148,17 +162,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
           // println!("gotme a node: {:?}", proxy);
         }
 
-        if matching::pw_node_matches_regexes(global, re_inputs.get().expect("No inputs?")) {
+        if matching::pw_node_matches_regexes(
+            global, re_inputs.get().expect("inputs not init'd?"), cli.match_description,
+        ) {
           println!("PW Node matched! Link this node: {:?}", global);
           central_node_connect_input_nodes.borrow_mut().insert(global.id);
         }
-        // if matching::pw_node_matches_regexes(global, re_outputs.get().expect("No outputs?")) {
-        //   println!("PW Node matched! Link it!");
-        //   central_node_connect_output_nodes.borrow_mut().insert(global.id);
-        // }
+        if matching::pw_node_matches_regexes(
+            global, re_outputs.get().expect("outputs not init'd?"), cli.match_description,
+        ) {
+          println!("PW Node matched! Link this node: {:?}", global);
+          central_node_connect_output_nodes.borrow_mut().insert(global.id);
+        }
       }
       ObjectType::Port => {
-        // println!("new port: {:?}", global);
+        println!("new port: {:?}", global);
         handlers::handle_port_added(
           global, &registry, &pw_objects, &pw_state,
         );
@@ -183,7 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return
         };
 
-        // println!("should we link port {:?} on node {:?}?", global.id, node_id);
+        println!("should we link port {:?} on node {:?}?", global.id, node_id);
 
         let central_node_id = central_node_id.get().unwrap();
         if central_node_id == node_id {
@@ -195,12 +213,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
           return;
         }
-        match direction {
-          Output => { // the target's Outputs to our Inputs
+        println!("it has direction {:?}", direction);
+        match *direction {
+          Direction::Output => { // the target's Outputs to our Inputs
+            println!("it be an output!");
             if central_node_connect_input_nodes.borrow().contains(node_id) {
               // it is an app we should link to our input
-              println!("this is a target input port! {:?}", global);
-              // TODO
+              println!("this is a target input! {:?}", global);
               let our_port: u32 = *central_node_ports_clone
                 .get(&(direction.reverse().as_raw(), *audio_channel))
                 .expect("we don't have a central port to match?");
@@ -212,8 +231,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
               return;
             }
           }
-          Input => {
-            // TODO
+          Direction::Input => {
+            println!("it be an input!");
+            if central_node_connect_output_nodes.borrow().contains(node_id) {
+              // it is an app we should link to our input
+              println!("this is a target output! {:?}", global);
+              let our_port: u32 = *central_node_ports_clone
+                .get(&(direction.reverse().as_raw(), *audio_channel))
+                .expect("we don't have a central port to match?");
+              let _ = actions::connect_ports(
+                &core, &pw_objects, &pw_state, our_port, id
+              );
+            } else {
+              return;
+            }
+          }
+          _ => {
+            panic!("port has an unknown or unset libspa::utils::Direction");
           }
         }
 
