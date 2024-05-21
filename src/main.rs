@@ -176,7 +176,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
       }
       ObjectType::Port => {
-        println!("new port: {:?}", global);
+        // println!("new port: {:?}", global);
         handlers::handle_port_added(
           global, &registry, &pw_objects, &pw_state,
         );
@@ -201,7 +201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return
         };
 
-        println!("should we link port {:?} on node {:?}?", global.id, node_id);
+        // println!("should we link port {:?} on node {:?}?", global.id, node_id);
 
         let central_node_id = central_node_id.get().unwrap();
         if central_node_id == node_id {
@@ -213,10 +213,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
           return;
         }
-        println!("it has direction {:?}", direction);
         match *direction {
           Direction::Output => { // the target's Outputs to our Inputs
-            println!("it be an output!");
             if central_node_connect_input_nodes.borrow().contains(node_id) {
               // it is an app we should link to our input
               println!("this is a target input! {:?}", global);
@@ -232,7 +230,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
           }
           Direction::Input => {
-            println!("it be an input!");
             if central_node_connect_output_nodes.borrow().contains(node_id) {
               // it is an app we should link to our input
               println!("this is a target output! {:?}", global);
