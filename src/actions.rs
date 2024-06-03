@@ -33,6 +33,7 @@ pub fn create_main_passthrough_node(
     core: &Rc<Core>,
     name: &str,
     description: &str,
+    is_mono: bool,
 ) -> Node {
     let node: Node = core.create_object(
         "adapter", // TODO: fetch dynamically
@@ -43,7 +44,10 @@ pub fn create_main_passthrough_node(
             "factory.name" => "support.null-audio-sink", // TODO: check availability
             "media.class" => "Audio/Sink",
             "object.linger" => "false",
-            // TODO specifiy channels???
+            "audio.position" => match is_mono {
+                true => "[MONO]",
+                false => "[FL FR]",
+            },
         },
     ).expect("node creation failed");
     return node;

@@ -43,6 +43,10 @@ struct Cli {
   #[arg(short, long)]
   match_description: bool,
 
+  /// The first channel will be a single MONO channel
+  #[arg(long)]
+  mono: bool,
+
   #[command(subcommand)]
   command: Option<Commands>,
 }
@@ -133,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     .global_remove(clone!(@strong pw_objects, @strong pw_state,
         @strong central_node_connect_input_nodes,
         @strong central_node_connect_output_nodes => move |id| {
-      println!("Removed PW object: {:?}", id);
+      // println!("Removed PW object: {:?}", id);
       pw_objects.borrow_mut().remove(&id);
       pw_state.borrow_mut().del(id);
 
@@ -231,14 +235,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
           }
           Direction::Input => {
             if central_node_connect_output_nodes.borrow().contains(node_id) {
-              // it is an app we should link to our input
+              // it is an app we should link to our output
               println!("this is a target output! {:?}", global);
-              let our_port: u32 = *central_node_ports_clone
-                .get(&(direction.reverse().as_raw(), *audio_channel))
-                .expect("we don't have a central port to match?");
-              let _ = actions::connect_ports(
-                &core, &pw_objects, &pw_state, our_port, id
-              );
+              if let Some(&our_port) = central_node_ports_clone
+                .get(&(direction.reverse().as_raw(), *audio_channel)) {
+                  let _ = actions::connect_ports(
+                    &core, &pw_objects, &pw_state, our_port, id
+                  );
+              } else {
+                println!("Could not find matching port for channel! {:?}", audio_channel);
+              }
+
+
             } else {
               return;
             }
@@ -271,6 +279,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
   let central_node = actions::create_main_passthrough_node(
     &core, "pwacc_node", &cli.name.unwrap_or("PWACC".to_string()),
+    cli.mono,
   );
   // figures out what id PW gave our new node:
   // also called when we get our ports added to it
