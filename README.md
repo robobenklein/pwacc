@@ -11,7 +11,7 @@ PWACC creates a new PipeWire node and then automatically connects either the inp
 
 Example for Firefox: `./pwacc --name "PWACC: firefox" inputs "Firefox"`
 
-Screencap from Helvum:
+Screencap from [Helvum](https://gitlab.freedesktop.org/pipewire/helvum):
 
 ![helvum gif](./images/GIFrecord_2024-06-02_215730.gif)
 
